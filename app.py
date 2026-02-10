@@ -4,6 +4,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Streamlit Cloud secrets → 환경변수로 복사 (배포 환경 지원)
+try:
+    for key in st.secrets:
+        if isinstance(st.secrets[key], str):
+            os.environ.setdefault(key, st.secrets[key])
+except FileNotFoundError:
+    pass
+
 st.set_page_config(
     page_title="네이버 쇼핑 시장조사",
     page_icon="🔍",
