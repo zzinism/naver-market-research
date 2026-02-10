@@ -6,10 +6,10 @@ load_dotenv()
 
 # Streamlit Cloud secrets → 환경변수로 복사 (배포 환경 지원)
 try:
-    for key in st.secrets:
-        if isinstance(st.secrets[key], str):
-            os.environ.setdefault(key, st.secrets[key])
-except FileNotFoundError:
+    for key, val in st.secrets.to_dict().items():
+        if isinstance(val, str):
+            os.environ[key] = val
+except Exception:
     pass
 
 st.set_page_config(
