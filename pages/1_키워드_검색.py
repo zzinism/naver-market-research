@@ -11,7 +11,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from core.naver_api import search_products, NAVER_CLIENT_ID, features_to_str
 from core.models import Product
 from core.demo_data import DEMO_PRODUCTS_DESK, DEMO_ANALYSIS_DESK
-from core.convex_client import save_search
 
 st.set_page_config(page_title="키워드 검색", page_icon="🔍", layout="wide")
 st.title("키워드 검색")
@@ -95,13 +94,6 @@ if (search_clicked or auto_search) and keyword:
                     }
                 )
                 st.success(f"{len(products)}개 상품을 수집했습니다.")
-                # Convex DB에 저장
-                try:
-                    session_id = save_search(keyword, sort_option, products)
-                    st.session_state.setdefault("session_ids", {})[keyword] = session_id
-                    st.caption(f"DB 저장 완료")
-                except Exception as db_err:
-                    st.caption(f"DB 저장 실패 (오프라인 모드): {db_err}")
             except ValueError as e:
                 st.error(str(e))
             except Exception as e:
