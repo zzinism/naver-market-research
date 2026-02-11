@@ -32,6 +32,39 @@ def save_feature_edits(data: dict):
     with open(FEATURE_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+
+import re
+
+def extract_features_from_title(title: str) -> str:
+    """상품명에서 구분/형태를 자동 추출하여 key:value 문자열로 반환"""
+    parts = []
+    t = title.lower()
+
+    # 구분: 싱글/듀얼/트리플
+    if "싱글" in t:
+        parts.append("구분:싱글")
+    elif "듀얼" in t or "더블" in t:
+        parts.append("구분:듀얼")
+    elif "트리플" in t:
+        parts.append("구분:트리플")
+
+    # 형태: 폴타입/스탠드형/클램프형/벽걸이형
+    if "폴타입" in t or ("폴" in t and "모니터" in t):
+        parts.append("형태:폴타입")
+    elif "스탠드" in t or "스탠다드" in t:
+        parts.append("형태:스탠드형")
+    elif "클램프" in t:
+        parts.append("형태:클램프형")
+    elif "벽걸이" in t or "월마운트" in t:
+        parts.append("형태:벽걸이형")
+
+    # 지탱무게: 상품명에 kg 표기가 있으면 추출
+    kg_match = re.search(r'(\d+(?:\.\d+)?)\s*kg', t)
+    if kg_match:
+        parts.append(f"지탱무게:{kg_match.group(1)}kg")
+
+    return ", ".join(parts)
+
 st.set_page_config(page_title="키워드 검색", page_icon="🔍", layout="wide")
 st.title("키워드 검색")
 
@@ -329,15 +362,34 @@ if keyword and keyword in st.session_state.search_results:
             "스토어": st.column_config.LinkColumn("스토어", display_text="스토어"),
             "특징(정리)": st.column_config.TextColumn(
                 "특징(정리)",
-                help="직접 입력 후 저장. 예: 구분:싱글, 형태:폴타입, 최대하중:9kg",
+                help="직접 입력 후 저장. 예: 구분:싱글, 형태:폴타입, 지탱무게:9kg",
                 width="medium",
             ),
         },
         key=f"editor_{keyword}",
     )
 
-    # 저장 버튼
-    if st.button("특징(정리) 저장", type="secondary"):
+    # 자동 입력 + 저장 버튼
+    btn_col1, btn_col2 = st.columns(2)
+    with btn_col1:
+        if st.button("특징 자동 입력", type="secondary", use_container_width=True):
+            auto_edits = st.session_state.feature_edits.get(keyword, {}).copy()
+            filled = 0
+            for p in products:
+                existing = auto_edits.get(p.product_id, "").strip()
+                if not existing:
+                    extracted = extract_features_from_title(p.title)
+                    if extracted:
+                        auto_edits[p.product_id] = extracted
+                        filled += 1
+            st.session_state.feature_edits[keyword] = auto_edits
+            save_feature_edits(st.session_state.feature_edits)
+            st.success(f"{filled}건 자동 입력 완료! (빈 셀만 채움)")
+            st.rerun()
+
+    with btn_col2:
+        save_clicked = st.button("특징(정리) 저장", type="secondary", use_container_width=True)
+    if save_clicked:
         current_edits = st.session_state.feature_edits.get(keyword, {}).copy()
         for _, row in edited_df.iterrows():
             rank = row["순위"]
