@@ -416,6 +416,25 @@ if keyword and keyword in st.session_state.search_results:
     if len(filtered) < len(df):
         st.caption(f"전체 {len(df)}건 중 {len(filtered)}건 표시")
 
+    # 이미지 hover 시 확대 미리보기 CSS
+    st.markdown("""<style>
+    [data-testid="stDataEditor"] [data-testid="column-header"],
+    [data-testid="stDataEditor"] td {
+        overflow: visible !important;
+    }
+    [data-testid="stDataEditor"] img {
+        transition: transform 0.2s ease;
+        cursor: pointer;
+    }
+    [data-testid="stDataEditor"] img:hover {
+        transform: scale(6);
+        z-index: 9999;
+        position: relative;
+        border-radius: 4px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    </style>""", unsafe_allow_html=True)
+
     # 편집 가능한 테이블 (특징(정리) 열만 편집 가능)
     disabled_cols = [col for col in filtered.columns if col != "특징(정리)"]
     edited_df = st.data_editor(
