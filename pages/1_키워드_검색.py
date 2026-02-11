@@ -12,6 +12,26 @@ from core.naver_api import search_products, NAVER_CLIENT_ID, features_to_str
 from core.models import Product
 from core.demo_data import DEMO_PRODUCTS_DESK, DEMO_ANALYSIS_DESK
 
+# 특징(정리) 영구 저장용 파일 경로
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+FEATURE_FILE = os.path.join(DATA_DIR, "feature_edits.json")
+
+
+def load_feature_edits() -> dict:
+    """JSON 파일에서 특징(정리) 데이터 로드"""
+    try:
+        with open(FEATURE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_feature_edits(data: dict):
+    """특징(정리) 데이터를 JSON 파일에 저장"""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(FEATURE_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
 st.set_page_config(page_title="키워드 검색", page_icon="🔍", layout="wide")
 st.title("키워드 검색")
 
@@ -28,7 +48,7 @@ if "analysis_results" not in st.session_state:
 if "search_history" not in st.session_state:
     st.session_state.search_history = []
 if "feature_edits" not in st.session_state:
-    st.session_state.feature_edits = {}
+    st.session_state.feature_edits = load_feature_edits()
 
 # URL 파라미터에서 키워드 복원
 params_keyword = st.query_params.get("q", "")
@@ -325,6 +345,7 @@ if keyword and keyword in st.session_state.search_results:
             if pid:
                 current_edits[pid] = row.get("특징(정리)", "") or ""
         st.session_state.feature_edits[keyword] = current_edits
+        save_feature_edits(st.session_state.feature_edits)
         st.success("저장 완료!")
 
     # 시장 분석 버튼
