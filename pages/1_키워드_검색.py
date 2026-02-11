@@ -12,13 +12,64 @@ from core.naver_api import search_products, NAVER_CLIENT_ID, features_to_str
 from core.models import Product
 from core.demo_data import DEMO_PRODUCTS_DESK, DEMO_ANALYSIS_DESK
 
-# 특징(정리) 영구 저장용 파일 경로
+# 특징(정리) 영구 저장용 파일 경로 (로컬 fallback)
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 FEATURE_FILE = os.path.join(DATA_DIR, "feature_edits.json")
 
+GSHEET_NAME = "market_research_features"
+
+
+def _get_gsheet_client():
+    """Google Sheets 클라이언트 반환"""
+    import gspread
+    from google.oauth2.service_account import Credentials
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    return gspread.authorize(creds)
+
+
+def _load_from_gsheet() -> dict:
+    """Google Sheets에서 특징 데이터 로드"""
+    gc = _get_gsheet_client()
+    sh = gc.open(GSHEET_NAME)
+    ws = sh.sheet1
+    records = ws.get_all_records()
+    result = {}
+    for row in records:
+        kw = str(row.get("keyword", ""))
+        pid = str(row.get("product_id", ""))
+        feat = str(row.get("features", ""))
+        if kw and pid:
+            result.setdefault(kw, {})[pid] = feat
+    return result
+
+
+def _save_to_gsheet(data: dict):
+    """Google Sheets에 특징 데이터 저장"""
+    gc = _get_gsheet_client()
+    sh = gc.open(GSHEET_NAME)
+    ws = sh.sheet1
+    ws.clear()
+    ws.update("A1", [["keyword", "product_id", "features"]])
+    rows = []
+    for kw, products in data.items():
+        for pid, feat in products.items():
+            if feat.strip():
+                rows.append([kw, pid, feat])
+    if rows:
+        ws.update(f"A2:C{len(rows) + 1}", rows)
+
 
 def load_feature_edits() -> dict:
-    """JSON 파일에서 특징(정리) 데이터 로드"""
+    """특징(정리) 데이터 로드 (Google Sheets → 로컬 JSON fallback)"""
+    try:
+        return _load_from_gsheet()
+    except Exception:
+        pass
     try:
         with open(FEATURE_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -27,10 +78,16 @@ def load_feature_edits() -> dict:
 
 
 def save_feature_edits(data: dict):
-    """특징(정리) 데이터를 JSON 파일에 저장"""
+    """특징(정리) 데이터 저장 (Google Sheets + 로컬 JSON)"""
+    # 로컬 JSON 저장 (항상)
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(FEATURE_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    # Google Sheets 저장 (가능하면)
+    try:
+        _save_to_gsheet(data)
+    except Exception:
+        pass
 
 
 import re
