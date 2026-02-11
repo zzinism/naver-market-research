@@ -416,36 +416,45 @@ if keyword and keyword in st.session_state.search_results:
     if len(filtered) < len(df):
         st.caption(f"전체 {len(df)}건 중 {len(filtered)}건 표시")
 
-    # 이미지 hover 미리보기 (data_editor는 캔버스 기반이라 CSS 불가 → HTML 스트립으로 구현)
-    img_items = ""
-    for _, row in filtered.iterrows():
-        title_escaped = str(row["상품명"]).replace('"', '&quot;').replace("'", "&#39;")[:40]
-        img_items += (
-            f'<div class="img-item">'
-            f'<img src="{row["이미지"]}" alt="{title_escaped}" />'
-            f'<span>#{row["순위"]}</span>'
-            f'</div>'
-        )
-    components.html(f"""
-    <style>
-    .img-strip {{ display:flex; gap:6px; overflow-x:auto; padding:8px 4px 16px; }}
-    .img-item {{ position:relative; flex-shrink:0; text-align:center; }}
-    .img-item img {{
-        width:48px; height:48px; object-fit:cover; border-radius:4px;
-        cursor:pointer; transition:transform 0.25s ease, box-shadow 0.25s ease;
-        transform-origin: bottom center;
-    }}
-    .img-item img:hover {{
-        transform:scale(5);
-        z-index:9999;
-        position:relative;
-        border-radius:4px;
-        box-shadow:0 8px 24px rgba(0,0,0,0.35);
-    }}
-    .img-item span {{ display:block; font-size:10px; color:#888; margin-top:2px; }}
-    </style>
-    <div class="img-strip">{img_items}</div>
-    """, height=100)
+    # 이미지 hover 미리보기 (JS로 부모 DOM 접근하여 floating preview 생성)
+    components.html("""
+    <script>
+    (function() {
+        var doc = window.parent.document;
+        var preview = doc.getElementById('img-hover-preview');
+        if (!preview) {
+            preview = doc.createElement('div');
+            preview.id = 'img-hover-preview';
+            preview.style.cssText = 'display:none; position:fixed; z-index:99999; pointer-events:none; border-radius:8px; box-shadow:0 8px 32px rgba(0,0,0,0.4); overflow:hidden; background:#fff; padding:4px;';
+            doc.body.appendChild(preview);
+        }
+        function setup() {
+            var imgs = doc.querySelectorAll('[data-testid="stDataEditor"] img');
+            imgs.forEach(function(img) {
+                if (img.dataset.hoverBound) return;
+                img.dataset.hoverBound = '1';
+                img.style.cursor = 'pointer';
+                img.addEventListener('mouseenter', function(e) {
+                    preview.innerHTML = '';
+                    var big = doc.createElement('img');
+                    big.src = img.src;
+                    big.style.cssText = 'width:240px; height:240px; object-fit:contain;';
+                    preview.appendChild(big);
+                    var rect = img.getBoundingClientRect();
+                    preview.style.left = (rect.right + 12) + 'px';
+                    preview.style.top = Math.max(8, rect.top - 100) + 'px';
+                    preview.style.display = 'block';
+                });
+                img.addEventListener('mouseleave', function() {
+                    preview.style.display = 'none';
+                });
+            });
+        }
+        setup();
+        setInterval(setup, 1500);
+    })();
+    </script>
+    """, height=0)
 
     # 편집 가능한 테이블 (특징(정리) 열만 편집 가능)
     disabled_cols = [col for col in filtered.columns if col != "특징(정리)"]
