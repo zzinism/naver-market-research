@@ -42,9 +42,10 @@ def _load_from_gsheet() -> dict:
     for row in records:
         kw = str(row.get("keyword", ""))
         pid = str(row.get("product_id", ""))
+        name = str(row.get("product_name", ""))
         feat = str(row.get("features", ""))
         if kw and pid:
-            result.setdefault(kw, {})[pid] = feat
+            result.setdefault(kw, {})[pid] = {"features": feat, "name": name}
     return result
 
 
@@ -54,14 +55,20 @@ def _save_to_gsheet(data: dict):
     sh = gc.open(GSHEET_NAME)
     ws = sh.sheet1
     ws.clear()
-    ws.update("A1", [["keyword", "product_id", "features"]])
+    ws.update("A1", [["keyword", "product_id", "product_name", "features"]])
     rows = []
     for kw, products in data.items():
-        for pid, feat in products.items():
+        for pid, feat_data in products.items():
+            if isinstance(feat_data, dict):
+                feat = feat_data.get("features", "")
+                name = feat_data.get("name", "")
+            else:
+                feat = feat_data
+                name = ""
             if feat.strip():
-                rows.append([kw, pid, feat])
+                rows.append([kw, pid, name, feat])
     if rows:
-        ws.update(f"A2:C{len(rows) + 1}", rows)
+        ws.update(f"A2:D{len(rows) + 1}", rows)
 
 
 def load_feature_edits() -> dict:
@@ -336,12 +343,15 @@ if keyword and keyword in st.session_state.search_results:
     for i, p in enumerate(products, 1):
         rank_to_pid[i] = p.product_id
         catalog_url = f"https://search.shopping.naver.com/catalog/{p.product_id}"
+        # saved_edits 값이 dict(새 형식) 또는 str(구 형식) 일 수 있음
+        edit_val = saved_edits.get(p.product_id, "")
+        feat_text = edit_val.get("features", "") if isinstance(edit_val, dict) else edit_val
         table_data.append(
             {
                 "순위": i,
                 "이미지": p.image,
                 "상품명": p.title,
-                "특징(정리)": saved_edits.get(p.product_id, ""),
+                "특징(정리)": feat_text,
                 "가격(원)": p.lprice if p.lprice else 0,
                 "브랜드": p.brand or "-",
                 "판매처": p.mall_name,
@@ -349,6 +359,7 @@ if keyword and keyword in st.session_state.search_results:
                 "카테고리": f"{p.category1} > {p.category2}".rstrip(" > "),
                 "가격비교": catalog_url,
                 "스토어": p.link,
+                "product_id": p.product_id,
             }
         )
 
@@ -433,11 +444,12 @@ if keyword and keyword in st.session_state.search_results:
             auto_edits = st.session_state.feature_edits.get(keyword, {}).copy()
             filled = 0
             for p in products:
-                existing = auto_edits.get(p.product_id, "").strip()
-                if not existing:
+                edit_val = auto_edits.get(p.product_id, "")
+                existing_feat = edit_val.get("features", "") if isinstance(edit_val, dict) else edit_val
+                if not existing_feat.strip():
                     extracted = extract_features_from_title(p.title)
                     if extracted:
-                        auto_edits[p.product_id] = extracted
+                        auto_edits[p.product_id] = {"features": extracted, "name": p.title}
                         filled += 1
             st.session_state.feature_edits[keyword] = auto_edits
             save_feature_edits(st.session_state.feature_edits)
@@ -452,7 +464,10 @@ if keyword and keyword in st.session_state.search_results:
             rank = row["순위"]
             pid = rank_to_pid.get(rank)
             if pid:
-                current_edits[pid] = row.get("특징(정리)", "") or ""
+                current_edits[pid] = {
+                    "features": row.get("특징(정리)", "") or "",
+                    "name": row.get("상품명", "") or "",
+                }
         st.session_state.feature_edits[keyword] = current_edits
         save_feature_edits(st.session_state.feature_edits)
         st.success("저장 완료!")
