@@ -416,24 +416,36 @@ if keyword and keyword in st.session_state.search_results:
     if len(filtered) < len(df):
         st.caption(f"전체 {len(df)}건 중 {len(filtered)}건 표시")
 
-    # 이미지 hover 시 확대 미리보기 CSS
-    st.markdown("""<style>
-    [data-testid="stDataEditor"] [data-testid="column-header"],
-    [data-testid="stDataEditor"] td {
-        overflow: visible !important;
-    }
-    [data-testid="stDataEditor"] img {
-        transition: transform 0.2s ease;
-        cursor: pointer;
-    }
-    [data-testid="stDataEditor"] img:hover {
-        transform: scale(6);
-        z-index: 9999;
-        position: relative;
-        border-radius: 4px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    }
-    </style>""", unsafe_allow_html=True)
+    # 이미지 hover 미리보기 (data_editor는 캔버스 기반이라 CSS 불가 → HTML 스트립으로 구현)
+    img_items = ""
+    for _, row in filtered.iterrows():
+        title_escaped = str(row["상품명"]).replace('"', '&quot;').replace("'", "&#39;")[:40]
+        img_items += (
+            f'<div class="img-item">'
+            f'<img src="{row["이미지"]}" alt="{title_escaped}" />'
+            f'<span>#{row["순위"]}</span>'
+            f'</div>'
+        )
+    components.html(f"""
+    <style>
+    .img-strip {{ display:flex; gap:6px; overflow-x:auto; padding:8px 4px 16px; }}
+    .img-item {{ position:relative; flex-shrink:0; text-align:center; }}
+    .img-item img {{
+        width:48px; height:48px; object-fit:cover; border-radius:4px;
+        cursor:pointer; transition:transform 0.25s ease, box-shadow 0.25s ease;
+        transform-origin: bottom center;
+    }}
+    .img-item img:hover {{
+        transform:scale(5);
+        z-index:9999;
+        position:relative;
+        border-radius:4px;
+        box-shadow:0 8px 24px rgba(0,0,0,0.35);
+    }}
+    .img-item span {{ display:block; font-size:10px; color:#888; margin-top:2px; }}
+    </style>
+    <div class="img-strip">{img_items}</div>
+    """, height=100)
 
     # 편집 가능한 테이블 (특징(정리) 열만 편집 가능)
     disabled_cols = [col for col in filtered.columns if col != "특징(정리)"]
