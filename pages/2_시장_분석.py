@@ -40,7 +40,13 @@ if not products:
     st.stop()
 
 # 특징(정리) 입력 여부 확인
-filled_count = sum(1 for p in products if saved_edits.get(p.product_id, "").strip())
+def _feat_text(edit_val) -> str:
+    """saved_edits 값에서 features 문자열 추출 (dict/str 호환)"""
+    if isinstance(edit_val, dict):
+        return edit_val.get("features", "")
+    return edit_val or ""
+
+filled_count = sum(1 for p in products if _feat_text(saved_edits.get(p.product_id, "")).strip())
 
 if filled_count == 0:
     st.warning("'키워드 검색' 페이지에서 각 상품의 **특징(정리)**를 입력하고 저장해주세요.")
@@ -67,7 +73,7 @@ all_rows = []
 for p in products:
     if p.lprice <= 0:
         continue
-    user_text = saved_edits.get(p.product_id, "").strip()
+    user_text = _feat_text(saved_edits.get(p.product_id, "")).strip()
     if not user_text:
         continue
     features = parse_features(user_text)

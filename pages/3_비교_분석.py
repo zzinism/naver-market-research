@@ -128,8 +128,16 @@ st.subheader("특징(정리) 비교")
 edits1 = st.session_state.feature_edits.get(kw1, {})
 edits2 = st.session_state.feature_edits.get(kw2, {})
 
-filled1 = sum(1 for p in products1 if edits1.get(p.product_id, "").strip())
-filled2 = sum(1 for p in products2 if edits2.get(p.product_id, "").strip())
+
+def _feat_text(edit_val) -> str:
+    """saved_edits 값에서 features 문자열 추출 (dict/str 호환)"""
+    if isinstance(edit_val, dict):
+        return edit_val.get("features", "")
+    return edit_val or ""
+
+
+filled1 = sum(1 for p in products1 if _feat_text(edits1.get(p.product_id, "")).strip())
+filled2 = sum(1 for p in products2 if _feat_text(edits2.get(p.product_id, "")).strip())
 
 
 def parse_features(text: str) -> dict[str, str]:
@@ -148,7 +156,7 @@ def collect_feature_data(products, edits):
     """key별 value 빈도를 수집. {key: {val: count}}"""
     data = {}
     for p in products:
-        text = edits.get(p.product_id, "").strip()
+        text = _feat_text(edits.get(p.product_id, "")).strip()
         if not text:
             continue
         for key, val in parse_features(text).items():
