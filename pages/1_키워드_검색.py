@@ -99,35 +99,88 @@ def save_feature_edits(data: dict):
 
 import re
 
-def extract_features_from_title(title: str) -> str:
-    """상품명에서 구분/형태를 자동 추출하여 key:value 문자열로 반환"""
-    parts = []
-    t = title.lower()
 
-    # 구분: 싱글/듀얼/트리플
-    if "싱글" in t:
-        parts.append("구분:싱글")
-    elif "듀얼" in t or "더블" in t:
-        parts.append("구분:듀얼")
-    elif "트리플" in t:
-        parts.append("구분:트리플")
+def _parse_feature_pairs(feat_text: str) -> list[tuple[str, str]]:
+    """'key1:val1, key2:val2' → [(key1, val1), (key2, val2)]"""
+    pairs = []
+    for segment in feat_text.split(","):
+        segment = segment.strip()
+        if ":" in segment:
+            key, value = segment.split(":", 1)
+            key, value = key.strip(), value.strip()
+            if key and value:
+                pairs.append((key, value))
+    return pairs
 
-    # 형태: 폴타입/스탠드형/클램프형/벽걸이형
-    if "폴타입" in t or ("폴" in t and "모니터" in t):
-        parts.append("형태:폴타입")
-    elif "스탠드" in t or "스탠다드" in t:
-        parts.append("형태:스탠드형")
-    elif "클램프" in t:
-        parts.append("형태:클램프형")
-    elif "벽걸이" in t or "월마운트" in t:
-        parts.append("형태:벽걸이형")
 
-    # 지탱무게: 상품명에 kg 표기가 있으면 추출
-    kg_match = re.search(r'(\d+(?:\.\d+)?)\s*kg', t)
-    if kg_match:
-        parts.append(f"지탱무게:{kg_match.group(1)}kg")
+def auto_fill_from_examples(products, saved_edits: dict) -> dict:
+    """사용자가 입력한 예시 기반으로 패턴을 학습하여 나머지 상품 자동 채움."""
+    key_examples: dict[str, list[tuple[str, str]]] = {}
+    filled_pids: set[str] = set()
 
-    return ", ".join(parts)
+    for p in products:
+        edit_val = saved_edits.get(p.product_id, "")
+        feat_text = edit_val.get("features", "") if isinstance(edit_val, dict) else edit_val
+        if not feat_text.strip():
+            continue
+        filled_pids.add(p.product_id)
+        for key, value in _parse_feature_pairs(feat_text):
+            key_examples.setdefault(key, []).append((p.title, value))
+
+    if not key_examples:
+        return {}
+
+    key_rules: dict[str, list] = {}
+    for key, examples in key_examples.items():
+        rules = []
+        unique_values = list(set(v for _, v in examples))
+
+        numeric_parts = []
+        for v in unique_values:
+            m = re.search(r'\d+(?:\.\d+)?', v)
+            if m:
+                prefix = v[:m.start()]
+                suffix = v[m.end():]
+                numeric_parts.append((prefix, suffix))
+
+        if numeric_parts and len(numeric_parts) == len(unique_values):
+            prefixes = set(p for p, _ in numeric_parts)
+            suffixes = set(s for _, s in numeric_parts)
+            if len(prefixes) == 1 and len(suffixes) == 1:
+                pfx, sfx = numeric_parts[0]
+                regex = re.escape(pfx) + r'(\d+(?:\.\d+)?)' + re.escape(sfx)
+                rules.append(("regex", regex, pfx, sfx))
+
+        rules.append(("direct", unique_values))
+        key_rules[key] = rules
+
+    results: dict[str, str] = {}
+    for p in products:
+        if p.product_id in filled_pids:
+            continue
+        parts = []
+        t_lower = p.title.lower()
+        for key, rules in key_rules.items():
+            matched = False
+            for rule in rules:
+                if rule[0] == "regex":
+                    _, pattern, pfx, sfx = rule
+                    m = re.search(pattern, t_lower)
+                    if m:
+                        parts.append(f"{key}:{pfx}{m.group(1)}{sfx}")
+                        matched = True
+                elif rule[0] == "direct":
+                    for v in rule[1]:
+                        if v.lower() in t_lower:
+                            parts.append(f"{key}:{v}")
+                            matched = True
+                            break
+                if matched:
+                    break
+        if parts:
+            results[p.product_id] = ", ".join(parts)
+
+    return results
 
 st.set_page_config(page_title="키워드 검색", page_icon="🔍", layout="wide")
 st.title("키워드 검색")
@@ -483,18 +536,18 @@ if keyword and keyword in st.session_state.search_results:
         if st.button("특징 자동 입력", type="secondary", use_container_width=True):
             auto_edits = st.session_state.feature_edits.get(keyword, {}).copy()
             filled = 0
-            for p in products:
-                edit_val = auto_edits.get(p.product_id, "")
-                existing_feat = edit_val.get("features", "") if isinstance(edit_val, dict) else edit_val
-                if not existing_feat.strip():
-                    extracted = extract_features_from_title(p.title)
-                    if extracted:
-                        auto_edits[p.product_id] = {"features": extracted, "name": p.title}
-                        filled += 1
-            st.session_state.feature_edits[keyword] = auto_edits
-            save_feature_edits(st.session_state.feature_edits)
-            st.success(f"{filled}건 자동 입력 완료! (빈 셀만 채움)")
-            st.rerun()
+            pattern_results = auto_fill_from_examples(products, auto_edits)
+            if pattern_results:
+                for pid, feat_str in pattern_results.items():
+                    product_title = next((p.title for p in products if p.product_id == pid), "")
+                    auto_edits[pid] = {"features": feat_str, "name": product_title}
+                    filled += 1
+                st.session_state.feature_edits[keyword] = auto_edits
+                save_feature_edits(st.session_state.feature_edits)
+                st.success(f"{filled}건 자동 입력 완료! (입력한 예시 기반 패턴 적용)")
+                st.rerun()
+            else:
+                st.warning("먼저 몇 개 상품에 특징(정리)을 입력하고 저장해주세요. (예: 사용인원:1인, 소재:가죽)")
 
     with btn_col2:
         save_clicked = st.button("특징(정리) 저장", type="secondary", use_container_width=True)

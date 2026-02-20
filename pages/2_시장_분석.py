@@ -5,6 +5,7 @@ import sys
 import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from core.naver_api import extract_features
 
 st.set_page_config(page_title="시장 분석", page_icon="📊", layout="wide")
 st.title("시장 분석")
@@ -46,15 +47,7 @@ def _feat_text(edit_val) -> str:
         return edit_val.get("features", "")
     return edit_val or ""
 
-filled_count = sum(1 for p in products if _feat_text(saved_edits.get(p.product_id, "")).strip())
 
-if filled_count == 0:
-    st.warning("'키워드 검색' 페이지에서 각 상품의 **특징(정리)**를 입력하고 저장해주세요.")
-    st.caption("입력 형식: `구분:싱글, 형태:폴타입, 최대하중:9kg`")
-    st.stop()
-
-
-# ─── key:value 파싱 ───
 def parse_features(text: str) -> dict[str, str]:
     """'구분:싱글, 형태:폴타입' → {'구분': '싱글', '형태': '폴타입'}"""
     result = {}
@@ -68,15 +61,56 @@ def parse_features(text: str) -> dict[str, str]:
     return result
 
 
-# 전체 데이터 파싱
+filled_count = sum(1 for p in products if _feat_text(saved_edits.get(p.product_id, "")).strip())
+auto_count = sum(1 for p in products if p.lprice > 0 and extract_features(p.title))
+
+# ─── 특징 소스 선택 ───
+source_options = []
+source_labels = {}
+
+if filled_count > 0:
+    source_options.append("curated")
+    source_labels["curated"] = f"특징(정리) ({filled_count}건 입력됨)"
+if auto_count > 0:
+    source_options.append("auto")
+    source_labels["auto"] = f"주요 특징 - 상품명 추출 ({auto_count}건 감지됨)"
+if filled_count > 0 and auto_count > 0:
+    source_options.append("both")
+    source_labels["both"] = "둘 다 합쳐서 분석"
+
+if not source_options:
+    st.warning("분석할 특징 데이터가 없습니다.")
+    st.caption("'키워드 검색' 페이지에서 **특징(정리)**를 입력하거나, 상품명에서 자동 추출 가능한 키워드가 있어야 합니다.")
+    st.stop()
+
+feature_source = st.radio(
+    "분석에 사용할 특징 소스",
+    options=source_options,
+    format_func=lambda x: source_labels[x],
+    horizontal=True,
+)
+
+# ─── 전체 데이터 파싱 ───
 all_rows = []
 for p in products:
     if p.lprice <= 0:
         continue
-    user_text = _feat_text(saved_edits.get(p.product_id, "")).strip()
-    if not user_text:
-        continue
-    features = parse_features(user_text)
+
+    features = {}
+
+    if feature_source in ("curated", "both"):
+        user_text = _feat_text(saved_edits.get(p.product_id, "")).strip()
+        if user_text:
+            features.update(parse_features(user_text))
+
+    if feature_source in ("auto", "both"):
+        auto_feat = extract_features(p.title)
+        if feature_source == "both":
+            for k, v in auto_feat.items():
+                features.setdefault(k, v)
+        else:
+            features.update(auto_feat)
+
     for key, val in features.items():
         all_rows.append({
             "상품명": p.title,
@@ -88,8 +122,7 @@ for p in products:
         })
 
 if not all_rows:
-    st.warning("파싱된 특징이 없습니다. `key:value` 형식으로 입력했는지 확인해주세요.")
-    st.caption("예: `구분:싱글, 형태:폴타입, 최대하중:9kg`")
+    st.warning("선택한 소스에서 파싱된 특징이 없습니다.")
     st.stop()
 
 df_all = pd.DataFrame(all_rows)
@@ -104,7 +137,12 @@ c2.metric("최저가", f"{min(prices):,}원" if prices else "-")
 c3.metric("최고가", f"{max(prices):,}원" if prices else "-")
 c4.metric("평균가", f"{int(sum(prices) / len(prices)):,}원" if prices else "-")
 
-st.caption(f"특징(정리) 입력 완료: {filled_count}/{len(products)}건")
+source_desc = {
+    "curated": f"특징(정리) 입력 완료: {filled_count}/{len(products)}건",
+    "auto": f"상품명 추출: {auto_count}/{len(products)}건 감지됨",
+    "both": f"특징(정리): {filled_count}건 + 상품명 추출: {auto_count}건",
+}
+st.caption(source_desc.get(feature_source, ""))
 
 st.divider()
 
